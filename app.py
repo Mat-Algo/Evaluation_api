@@ -19,6 +19,7 @@ app = FastAPI(
 
 # Pydantic models
 class QuestionItem(BaseModel):
+    question_id: str
     question: str
     actual_answer: str
     expected_answer: str
@@ -27,13 +28,14 @@ class Submission(BaseModel):
     items: List[QuestionItem]
 
 class ScoreDetail(BaseModel):
+    question_id: str
     question: str
     score: float  
     correct: bool
     feedback: str
-
+    
 class ScoreResponse(BaseModel):
-    total_score: float  # sum of individual scores
+    total_score: float
     details: List[ScoreDetail]
 
 
@@ -76,21 +78,28 @@ async def evaluate(submission: Submission):
         raw = json.loads(content)
         total = 0.0
         details = []
-        for entry in raw:
+
+        # Match each returned entry to the original submission item by index
+        for entry, original_item in zip(raw, submission.items):
             score = float(entry.get("score", 0))
             correct = bool(entry.get("correct", False))
             feedback = entry.get("feedback", "")
             question = entry.get("question", "")
+
             details.append(ScoreDetail(
+                question_id=original_item.question_id,  # add this line
                 question=question,
                 score=score,
                 correct=correct,
                 feedback=feedback
             ))
             total += score
+
         return ScoreResponse(total_score=total, details=details)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
     
 def build_swot_prompt(items: List[QuestionItem]) -> str:
     context = "\n".join(
