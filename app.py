@@ -158,3 +158,7 @@ async def swot_analysis(submission: Submission):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/health-check")
+async def health_check():
+    return {"status": "ok"}
