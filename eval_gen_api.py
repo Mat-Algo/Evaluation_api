@@ -45,6 +45,58 @@ class SWOTResponse(BaseModel):
     opportunities: str
     threats: str
 
+class QuestionGenerationRequest(BaseModel):
+    title: str
+    subject: str
+    class_: str  # `class` is a reserved keyword
+    start_date: str
+    end_date: str
+    question_type: str
+    number_of_questions: int
+    difficulty: str
+    topics: str
+    instructions: str
+    description: str
+    max_score: int
+    passing_score: int
+
+class GeneratedQuestion(BaseModel):
+    question: str
+    expected_answer: str
+
+class QuestionGenerationResponse(BaseModel):
+    test_title: str
+    subject: str
+    class_: str
+    questions: List[GeneratedQuestion]
+
+def build_question_generation_prompt(payload: QuestionGenerationRequest) -> str:
+    return f"""
+You are a highly experienced school teacher tasked with creating a test.
+
+Please generate {payload.number_of_questions} **{payload.question_type}** questions based on the topic **{payload.topics}**, for the subject **{payload.subject}**, targeted at **{payload.class_}** students. The difficulty should be **{payload.difficulty}** level.
+
+Make sure the questions:
+- Are clear and age-appropriate.
+- Do NOT repeat the same concept.
+- Follow these instructions: {payload.instructions}
+
+For each question, provide an expected answer clearly. Return the output as a JSON array with fields:
+- `question`: the full question text.
+- `expected_answer`: the correct answer to that question. 
+
+### Example format:
+[
+  {{
+    "question": "What is ...?",
+    "expected_answer": "..."
+  }},
+  ...
+]
+
+ONLY return a valid JSON array and nothing else. Now generate the questions:
+    """
+
 def build_evaluation_prompt(items: List[QuestionItem]) -> str:
     prompt = (
         """
@@ -159,6 +211,36 @@ async def swot_analysis(submission: Submission):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+@app.post("/generate-qa", response_model=QuestionGenerationResponse)
+async def generate_questions(request: QuestionGenerationRequest):
+    prompt = build_question_generation_prompt(request)
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
+        content = response.text.strip()
+
+        if content.startswith("```"):
+            content = "\n".join(content.splitlines()[1:-1])
+
+        questions_json = json.loads(content)
+
+        return QuestionGenerationResponse(
+            test_title=request.title,
+            subject=request.subject,
+            class_=request.class_,
+            questions=[
+                GeneratedQuestion(question=q["question"], expected_answer=q["expected_answer"])
+                for q in questions_json
+            ]
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gemini Error: {str(e)}")
+    
 @app.get("/health-check")
 async def health_check():
     return {"status": "ok"}
+
+
