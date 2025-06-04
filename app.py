@@ -4,6 +4,10 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from google import genai
 import json
+from dotenv import load_dotenv
+import logging
+logging.basicConfig(level=logging.DEBUG)
+load_dotenv(override=True)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
@@ -14,7 +18,8 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 app = FastAPI(
     title="Assignment Evaluation API",
     description="Evaluate student assignments and provide SWOT analysis using Gemini LLM",
-    version="1.0.0"
+    version="1.0.0",
+    debug=True
 )
 
 # Pydantic models
@@ -65,9 +70,6 @@ class GeneratedQuestion(BaseModel):
     expected_answer: str
 
 class QuestionGenerationResponse(BaseModel):
-    test_title: str
-    subject: str
-    class_: str
     questions: List[GeneratedQuestion]
 
 def build_question_generation_prompt(payload: QuestionGenerationRequest) -> str:
@@ -86,11 +88,7 @@ For each question, provide an expected answer clearly. Return the output as a JS
 - `expected_answer`: the correct answer to that question. 
 
 ### Example format:
-[
   {{
-  "test_title": "{payload.title}",
-  "subject": "{payload.subject}",
-  "class_": "{payload.class_}",
   "questions": [
     {{
       "question": "Your generated question here",
@@ -100,7 +98,6 @@ For each question, provide an expected answer clearly. Return the output as a JS
   ]
 }}
   ...
-]
 
 ONLY return a valid JSON array and nothing else. Now generate the questions:
     """
@@ -229,23 +226,39 @@ async def generate_questions(request: QuestionGenerationRequest):
         )
         content = response.text.strip()
 
+        # 🔍 1. Remove code block markers (``` or ```json)
         if content.startswith("```"):
-            content = "\n".join(content.splitlines()[1:-1])
+            lines = content.splitlines()
+            content = "\n".join(line for line in lines if not line.strip().startswith("```"))
 
-        questions_json = json.loads(content)
+        print("=== Gemini Raw Response ===")
+        print(content)
+        print("===========================")
 
+        # 🧠 2. Load JSON
+        parsed = json.loads(content)
+
+        # 🧩 3. If it's a list, grab the first element
+        if isinstance(parsed, list):
+            if len(parsed) == 0:
+                raise HTTPException(status_code=500, detail="Gemini returned an empty list")
+            parsed = parsed[0]  # Get the first item, which should be a dict
+
+        # 🛡 4. Make sure parsed is a dict with "questions"
+        if not isinstance(parsed, dict) or "questions" not in parsed:
+            raise HTTPException(status_code=500, detail="Unexpected Gemini response structure")
+
+        # ✅ 5. Build response
         return QuestionGenerationResponse(
-            test_title=request.title,
-            subject=request.subject,
-            class_=request.class_,
             questions=[
-                GeneratedQuestion(question=q["question"], expected_answer=q["expected_answer"])
-                for q in questions_json
+                GeneratedQuestion(question=q.get("question"), expected_answer=q.get("expected_answer"))
+                for q in parsed["questions"]
             ]
         )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gemini Error: {str(e)}")
+
     
 @app.get("/health-check")
 async def health_check():
