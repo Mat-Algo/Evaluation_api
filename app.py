@@ -231,9 +231,6 @@ async def generate_questions(request: QuestionGenerationRequest):
             lines = content.splitlines()
             content = "\n".join(line for line in lines if not line.strip().startswith("```"))
 
-        print("=== Gemini Raw Response ===")
-        print(content)
-        print("===========================")
 
         # 🧠 2. Load JSON
         parsed = json.loads(content)
