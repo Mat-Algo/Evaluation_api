@@ -88,9 +88,17 @@ For each question, provide an expected answer clearly. Return the output as a JS
 ### Example format:
 [
   {{
-    "question": "What is ...?",
-    "expected_answer": "..."
-  }},
+  "test_title": "{payload.title}",
+  "subject": "{payload.subject}",
+  "class_": "{payload.class_}",
+  "questions": [
+    {{
+      "question": "Your generated question here",
+      "expected_answer": "The correct answer here"
+    }},
+    ...
+  ]
+}}
   ...
 ]
 
