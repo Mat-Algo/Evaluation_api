@@ -167,7 +167,7 @@ def build_swot_prompt(items: List[QuestionItem]) -> str:
         """
 You are an educational expert with extensive experience in student assessment and performance analysis.
 
-Review the following set of student responses (along with the expected answers) and provide a ingle, overall SWOT analysis summarizing the student's overall performance — not per question.
+Review the following set of student responses (along with the expected answers) and provide a single, overall SWOT analysis summarizing the student's overall performance — not per question.
 
 Focus on:
 - **Strengths**: What are the overall areas where this student shows strong understanding or skill across the test? Provide general patterns and examples.
