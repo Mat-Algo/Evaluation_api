@@ -143,6 +143,67 @@ def build_evaluation_prompt(items: List[QuestionItem]) -> str:
         prompt += f"Expected Answer: {item.expected_answer}\n\n"
     return prompt
 
+
+def build_swot_prompt(items: List[QuestionItem]) -> str:
+    context = "\n".join(
+        f"Question: {item.question}\nStudent Answer: {item.actual_answer}\nExpected Answer: {item.expected_answer}\n"
+        for item in items
+    )
+    prompt = (
+        """
+You are an educational expert with extensive experience in student assessment and performance analysis.
+
+Review the following set of student responses (along with the expected answers) and provide a single, overall SWOT analysis summarizing the student's overall performance — not per question.
+
+Focus on:
+- **Strengths**: What are the overall areas where this student shows strong understanding or skill across the test? Provide general patterns and examples.
+- **Weaknesses**: What general mistakes, gaps, or weaknesses appear across the responses?
+- **Opportunities**: What can this student do to improve overall? Suggest strategies, resources, or approaches they can take.
+- **Threats**: Are there any risks or challenges (like misconceptions, bad habits, or external issues) that might limit their progress?
+
+- Make sure that the analysis is very helpful, natural and very human like as if how a real person would advice and not robotic
+- Also always use "you" instead of student should do this,etc. Make it sound personalised to that particular person
+
+RETURN FORMAT:
+Return the SWOT analysis as a single JSON object with these four keys:
+- strengths (string)
+- weaknesses (string)
+- opportunities (string)
+- threats (string)
+
+Be detailed, constructive, and base your analysis on overall trends, not per-question breakdowns.
+
+""" + context
+    )
+    return prompt
+
+def build_alternatives_prompt(req: AlternativeRequest) -> str:
+    qtype_map = {
+        "SHORT_ANSWER": "short answer",
+        "MCQ": "multiple choice (MCQ)",
+        "LONG_ANSWER": "long answer"
+    }
+    base = (
+        f"You are a exper , creative teacher. Generate *three* distinct {qtype_map[req.questionType]} "
+        f"questions (with expected answers) on the subtopic **{req.subtopic}**, "
+        f"for a **{req.difficulty}**-level {req.subject} test worth **{req.marks}** marks each.\n"
+        f"Use the provided question ID **{req.id}** for all three questions.\n"
+        f"Include in your JSON output for each question:\n"
+        " - `id`: the provided ID \n"
+        " - `type`: one of SHORT_ANSWER, MCQ, LONG_ANSWER\n"
+        " - `text`: the question prompt (include marks and difficulty in brackets)\n"
+        " - `answer_type`: \"Text\"\n"
+        " - `expected_answer`: the correct answer\n"
+        " - `marks`: how many marks\n"
+    )
+    if req.questionType == "MCQ":
+        base += (
+            " - `options`: list of four `{id, text}` objects representing the choices.\n"
+            " - `expected_answer`: the `id` of the correct option.\n"
+        )
+    base += "\nReturn a JSON array of objects exactly matching this schema."
+    return base
+
 # Endpoint 1: evaluation
 @app.post("/evaluate", response_model=ScoreResponse)
 async def evaluate(submission: Submission):
@@ -183,38 +244,7 @@ async def evaluate(submission: Submission):
         raise HTTPException(status_code=500, detail=str(e))
 
     
-def build_swot_prompt(items: List[QuestionItem]) -> str:
-    context = "\n".join(
-        f"Question: {item.question}\nStudent Answer: {item.actual_answer}\nExpected Answer: {item.expected_answer}\n"
-        for item in items
-    )
-    prompt = (
-        """
-You are an educational expert with extensive experience in student assessment and performance analysis.
 
-Review the following set of student responses (along with the expected answers) and provide a single, overall SWOT analysis summarizing the student's overall performance — not per question.
-
-Focus on:
-- **Strengths**: What are the overall areas where this student shows strong understanding or skill across the test? Provide general patterns and examples.
-- **Weaknesses**: What general mistakes, gaps, or weaknesses appear across the responses?
-- **Opportunities**: What can this student do to improve overall? Suggest strategies, resources, or approaches they can take.
-- **Threats**: Are there any risks or challenges (like misconceptions, bad habits, or external issues) that might limit their progress?
-
-- Make sure that the analysis is very helpful, natural and very human like as if how a real person would advice and not robotic
-- Also always use "you" instead of student should do this,etc. Make it sound personalised to that particular person
-
-RETURN FORMAT:
-Return the SWOT analysis as a single JSON object with these four keys:
-- strengths (string)
-- weaknesses (string)
-- opportunities (string)
-- threats (string)
-
-Be detailed, constructive, and base your analysis on overall trends, not per-question breakdowns.
-
-""" + context
-    )
-    return prompt
 
 # Endpoint 2: SWOT analysis
 @app.post("/swot", response_model=SWOTResponse)
@@ -282,32 +312,7 @@ async def generate_questions(request: QuestionGenerationRequest):
         raise HTTPException(status_code=500, detail=f"Gemini Error: {str(e)}")
     
 
-def build_alternatives_prompt(req: AlternativeRequest) -> str:
-    qtype_map = {
-        "SHORT_ANSWER": "short answer",
-        "MCQ": "multiple choice (MCQ)",
-        "LONG_ANSWER": "long answer"
-    }
-    base = (
-        f"You are a teacher. Generate *three* distinct {qtype_map[req.questionType]} "
-        f"questions (with expected answers) on the subtopic **{req.subtopic}**, "
-        f"for a **{req.difficulty}**-level {req.subject} test worth **{req.marks}** marks each.\n"
-        f"Use the provided question ID **{req.id}** for all three questions, appending a suffix (-1, -2, -3) to ensure uniqueness.\n"
-        f"Include in your JSON output for each question:\n"
-        " - `id`: the provided ID with suffix (e.g., {req.id}-1, {req.id}-2, {req.id}-3)\n"
-        " - `type`: one of SHORT_ANSWER, MCQ, LONG_ANSWER\n"
-        " - `text`: the question prompt (include marks and difficulty in brackets)\n"
-        " - `answer_type`: \"Text\"\n"
-        " - `expected_answer`: the correct answer\n"
-        " - `marks`: how many marks\n"
-    )
-    if req.questionType == "MCQ":
-        base += (
-            " - `options`: list of four `{id, text}` objects representing the choices.\n"
-            " - `expected_answer`: the `id` of the correct option.\n"
-        )
-    base += "\nReturn a JSON array of objects exactly matching this schema."
-    return base
+
 
 @app.post(
     "/generate-alternatives",
