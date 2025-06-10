@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Literal, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from google import genai
@@ -71,6 +71,31 @@ class GeneratedQuestion(BaseModel):
 
 class QuestionGenerationResponse(BaseModel):
     questions: List[GeneratedQuestion]
+
+
+class AlternativeOption(BaseModel):
+    id: str
+    text: str
+
+class AlternativeQuestion(BaseModel):
+    id: str
+    type: Literal["SHORT_ANSWER", "MCQ", "LONG_ANSWER"]
+    text: str
+    answer_type: Literal["Text"]
+    expected_answer: str
+    marks: int
+    options: Optional[list[AlternativeOption]] = None
+
+class AlternativeRequest(BaseModel):
+    id: str  # Added id field to receive the desired question id
+    title: str
+    description: str
+    subtopic: str
+    difficulty: str
+    marks: int
+    questionType: Literal["SHORT_ANSWER", "MCQ", "LONG_ANSWER"]
+    subject: str
+
 
 def build_question_generation_prompt(payload: QuestionGenerationRequest) -> str:
     return f"""
@@ -255,6 +280,66 @@ async def generate_questions(request: QuestionGenerationRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gemini Error: {str(e)}")
+    
+
+def build_alternatives_prompt(req: AlternativeRequest) -> str:
+    qtype_map = {
+        "SHORT_ANSWER": "short answer",
+        "MCQ": "multiple choice (MCQ)",
+        "LONG_ANSWER": "long answer"
+    }
+    base = (
+        f"You are a teacher. Generate *three* distinct {qtype_map[req.questionType]} "
+        f"questions (with expected answers) on the subtopic **{req.subtopic}**, "
+        f"for a **{req.difficulty}**-level {req.subject} test worth **{req.marks}** marks each.\n"
+        f"Use the provided question ID **{req.id}** for all three questions, appending a suffix (-1, -2, -3) to ensure uniqueness.\n"
+        f"Include in your JSON output for each question:\n"
+        " - `id`: the provided ID with suffix (e.g., {req.id}-1, {req.id}-2, {req.id}-3)\n"
+        " - `type`: one of SHORT_ANSWER, MCQ, LONG_ANSWER\n"
+        " - `text`: the question prompt (include marks and difficulty in brackets)\n"
+        " - `answer_type`: \"Text\"\n"
+        " - `expected_answer`: the correct answer\n"
+        " - `marks`: how many marks\n"
+    )
+    if req.questionType == "MCQ":
+        base += (
+            " - `options`: list of four `{id, text}` objects representing the choices.\n"
+            " - `expected_answer`: the `id` of the correct option.\n"
+        )
+    base += "\nReturn a JSON array of objects exactly matching this schema."
+    return base
+
+@app.post(
+    "/generate-alternatives",
+    response_model=list[AlternativeQuestion],
+    summary="Generate three alternative questions for a given subtopic"
+)
+async def generate_alternatives(req: AlternativeRequest):
+    prompt = build_alternatives_prompt(req)
+    try:
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
+        content = resp.text.strip()
+
+        # strip code fences if present
+        if content.startswith("```"):
+            lines = content.splitlines()
+            content = "\n".join(line for line in lines if not line.strip().startswith("```"))
+
+        parsed = json.loads(content)
+        if not isinstance(parsed, list) or len(parsed) != 3:
+            raise ValueError("Expected a JSON array of length 3")
+
+        # Validate & cast into Pydantic models (will raise if mismatch)
+        questions = [AlternativeQuestion(**q) for q in parsed]
+        return questions
+
+    except Exception as e:
+        logging.exception("Failed to generate alternatives")
+        raise HTTPException(status_code=500, detail=f"Gemini error: {e}")
+
 
     
 @app.get("/health-check")
