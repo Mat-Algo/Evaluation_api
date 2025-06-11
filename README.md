@@ -181,4 +181,4 @@ Contributions welcome! Please open issues or PRs, following the existing code st
 
 ## 📄 License
 
-MIT © Your Name
+MIT license
